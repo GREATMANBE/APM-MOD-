@@ -80,9 +80,9 @@ public class APMMod {
         mc.fontRendererObj.drawString(apmText, x, y, color);
         y += 12;
 
-        for (int slot = 2; slot <= 4; slot++) {
+        for (int slot = 1; slot <= 3; slot++) {
             int avg = apmTracker.getAverageStayTime(slot);
-            String slotText = String.format("Slot %d avg stay: %d ms", slot, avg);
+            String slotText = String.format("Slot %d avg stay: %d ms", slot + 1, avg);
             mc.fontRendererObj.drawString(slotText, x, y, color);
             y += 12;
         }
