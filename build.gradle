@@ -1,0 +1,102 @@
+buildscript {
+    repositories {
+        jcenter()
+        maven {
+            name = "forge"
+            url = "https://files.minecraftforge.net/maven"
+        }
+        maven {
+            name = "sponge"
+            url = "https://repo.spongepowered.org/maven"
+        }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+        classpath 'org.spongepowered:mixingradle:0.6-SNAPSHOT'
+
+    }
+}
+apply plugin: 'net.minecraftforge.gradle.forge'
+apply plugin: 'org.spongepowered.mixin'
+
+version = "1.7.5"
+group = "zombiecat.client"
+archivesBaseName = "ZombieCat"
+
+minecraft {
+    version = "1.8.9-11.15.1.2318-1.8.9"
+    runDir = "run"
+    mappings = "stable_20"
+    clientRunArgs += ["--tweakClass", "zombiecat.client.tweaker.FMLLoadingPlugin"]
+}
+
+tasks.compileJava {
+    sourceCompatibility = "1.8"
+    targetCompatibility = "1.8"
+}
+
+tasks.withType(JavaCompile){
+    options.encoding = "UTF-8"
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'sponge'
+        url = 'http://repo.spongepowered.org/maven'
+    }
+}
+
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    provided('org.spongepowered:mixin:0.6-SNAPSHOT') {
+        exclude module: 'launchwrapper'
+        exclude module: 'guava'
+        exclude module: 'gson'
+        exclude module: 'commons-io'
+        exclude module: 'log4j-core'
+    }
+}
+jar {
+    from configurations.provided.asFileTree.files.collect {
+        zipTree(it)
+    }
+
+    manifest.attributes(
+            'FMLAT': 'zombiecat_at.cfg',
+            'MixinConfigs': 'mixins.zombiecat.json',
+            'TweakOrder': '0',
+            'TweakClass': 'zombiecat.client.tweaker.FMLLoadingPlugin'
+    )
+}
+
+configurations {
+    provided
+    compile.extendsFrom(provided)
+}
+
+processResources
+        {
+            inputs.property "version", project.version
+            inputs.property "mcversion", project.minecraft.version
+
+            from(sourceSets.main.resources.srcDirs) {
+                include 'mcmod.info'
+
+                expand 'version':project.version, 'mcversion':project.minecraft.version
+            }
+
+            from(sourceSets.main.resources.srcDirs) {
+                exclude 'mcmod.info'
+            }
+        }
+
+mixin {
+    defaultObfuscationEnv searge
+    add sourceSets.main, "mixins.zombiecat.refmap.json"
+}
