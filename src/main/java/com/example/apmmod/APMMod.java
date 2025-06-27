@@ -74,19 +74,24 @@ public class APMMod {
         // Register command "/apm"
         ClientCommandHandler.instance.registerCommand(new CommandBase() {
             @Override
-            public String getName() {
+            public String getCommandName() {
                 return "apm";
             }
-
+        
             @Override
-            public String getUsage(ICommandSender sender) {
-                return "/apm - open APM overlay configuration";
+            public String getCommandUsage(ICommandSender sender) {
+                return "/apm - toggle APM overlay";
             }
-
+        
             @Override
-            public void execute(Minecraft mc, ICommandSender sender, String[] args) {
-                Minecraft.getMinecraft().displayGuiScreen(new APMOverlayGui());
-                isInOverlayMode = true;
+            public void processCommand(ICommandSender sender, String[] args) {
+                Minecraft.getMinecraft().displayGuiScreen(new APMMod.APMOverlayGui());
+                APMMod.this.isInOverlayMode = true;
+            }
+        
+            @Override
+            public int getRequiredPermissionLevel() {
+                return 0;
             }
         });
 
