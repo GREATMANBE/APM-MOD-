@@ -145,7 +145,9 @@ public class APMMod {
       } 
       if (key == toggleModKey.func_151463_i()) {
         this.modEnabled = !this.modEnabled;
-        (Minecraft.func_71410_x()).field_71439_g.func_145747_a((IChatComponent)new ChatComponentText("Display " + (this.modEnabled ? ": ")));
+        Minecraft.func_71410_x().field_71439_g.func_145747_a(
+          new ChatComponentText("Display " + (this.modEnabled ? ": ON" : ": OFF"))
+        );
         saveConfig();
       } 
     } 
