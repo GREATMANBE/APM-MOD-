@@ -4,24 +4,14 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Queue;
+import java.util.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.command.CommandBase;
-import net.minecraft.command.ICommand;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
-import net.minecraft.util.IChatComponent;
 import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -32,323 +22,344 @@ import net.minecraftforge.fml.common.Mod.EventHandler;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.InputEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.input.Keyboard;
 
-@Mod(modid = "apmmod", name = "APM Configurable Display", version = "1.4", acceptedMinecraftVersions = "[1.8.9]")
+@Mod(modid = APMMod.MODID, name = APMMod.NAME, version = APMMod.VERSION, acceptedMinecraftVersions = "[1.8.9]")
 public class APMMod {
 
-  private int previousSlot = -1;
-  private long lastSwitchTime = -1;
+    public static final String MODID = "apmmod";
+    public static final String NAME = "APM Configurable Display";
+    public static final String VERSION = "1.4";
 
-  private void onHotbarSwitch(int currentSlot) {
-    if (currentSlot < 2 || currentSlot > 4) return;
+    private int previousSlot = -1;
+    private long lastSwitchTime = -1;
 
-    long currentTime = System.currentTimeMillis();
+    private static APMMod instance;
 
-    if (previousSlot != -1 && lastSwitchTime != -1) {
-        long interval = currentTime - lastSwitchTime;
-        System.out.println("Switched from slot " + previousSlot + " to " + currentSlot +
-                           " | Interval: " + interval + " ms");
+    private final APMTracker apmTracker = new APMTracker();
+
+    private int posX = 5;
+    private int posY = 5;
+    private int fontColor = 0xFFFFFF;
+
+    private String displayText = "APM: %d";
+
+    private boolean showAPM = true;
+    private boolean showSlotTimes = true;
+    private boolean modEnabled = true;
+
+    private static final KeyBinding toggleOverlayKey = new KeyBinding("Toggle APM Overlay", Keyboard.KEY_F6, "APM Config");
+    private static final KeyBinding toggleModKey = new KeyBinding("Toggle Mod Display", Keyboard.KEY_B, "APM Config");
+
+    private File configFile;
+
+    public boolean isInOverlayMode = false;
+
+    public APMMod() {
+        instance = this;
     }
 
-    previousSlot = currentSlot;
-    lastSwitchTime = currentTime;
-  }
+    public static APMMod getInstance() {
+        return instance;
+    }
 
-  public static final String MODID = "apmmod";
-  
-  public static final String NAME = "APM Configurable Display";
-  
-  public static final String VERSION = "1.4";
-  
-  private static APMMod instance;
-  
-  private final APMTracker apmTracker = new APMTracker();
-  
-  private int posX = 5;
-  
-  private int posY = 5;
-  
-  private int fontColor = 16777215;
-  
-  private String displayText = "APM: %d";
-  
-  private boolean showAPM = true;
-  
-  private boolean showSlotTimes = true;
-  
-  private boolean modEnabled = true;
-  
-  private static final KeyBinding toggleOverlayKey = new KeyBinding("Toggle APM Overlay", 63, "APM Config");
-  
-  private static final KeyBinding toggleModKey = new KeyBinding("Toggle Mod Display", 66, "APM Config");
-  
-  private File configFile;
-  
-  public boolean isInOverlayMode = false;
-  
-  public APMMod() {
-    instance = this;
-  }
-  
-  public static APMMod getInstance() {
-    return instance;
-  }
-  
-  @EventHandler
-  public void init(FMLInitializationEvent event) {
-    ClientRegistry.registerKeyBinding(toggleOverlayKey);
-    ClientRegistry.registerKeyBinding(toggleModKey);
-    this.configFile = new File((Minecraft.func_71410_x()).field_71412_D, "apmmod.cfg");
-    MinecraftForge.EVENT_BUS.register(this);
-    ClientCommandHandler.instance.func_71560_a((ICommand)new CommandBase() {
-          public String func_71517_b() {
-            return "apm";
-          }
-          
-          public String func_71518_a(ICommandSender sender) {
-            return "/apm - toggle APM overlay";
-          }
-          
-          public void func_71515_b(ICommandSender sender, String[] args) {
-            Minecraft.func_71410_x().func_147108_a(new APMMod.APMOverlayGui());
-            APMMod.this.isInOverlayMode = true;
-          }
-          
-          public int func_82362_a() {
-            return 0;
-          }
+    @EventHandler
+    public void init(FMLInitializationEvent event) {
+        ClientRegistry.registerKeyBinding(toggleOverlayKey);
+        ClientRegistry.registerKeyBinding(toggleModKey);
+        this.configFile = new File(Minecraft.getMinecraft().mcDataDir, "apmmod.cfg");
+        MinecraftForge.EVENT_BUS.register(this);
+
+        // Register command "/apm"
+        ClientCommandHandler.instance.registerCommand(new CommandBase() {
+            @Override
+            public String getName() {
+                return "apm";
+            }
+
+            @Override
+            public String getUsage(ICommandSender sender) {
+                return "/apm - open APM overlay configuration";
+            }
+
+            @Override
+            public void execute(Minecraft mc, ICommandSender sender, String[] args) {
+                Minecraft.getMinecraft().displayGuiScreen(new APMOverlayGui());
+                isInOverlayMode = true;
+            }
         });
-    loadConfig();
-  }
-  
-  @SubscribeEvent
-  public void onClientTick(TickEvent.ClientTickEvent event) {
-      if (event.phase != TickEvent.Phase.END) return;
-  
-      Minecraft mc = Minecraft.func_71410_x();
-      if (mc.field_71439_g == null) return;
-  
-      int currentSlot = mc.field_71439_g.field_71071_by.field_70461_c;
-      onHotbarSwitch(currentSlot);
-  }
 
-  
-  public void onKeyInput(InputEvent.KeyInputEvent event) {
-    if (Keyboard.getEventKeyState()) {
-      int key = Keyboard.getEventKey();
-      if (key == 3 || key == 4 || key == 5)
-        this.apmTracker.recordAction(key); 
-      if (key == toggleOverlayKey.func_151463_i()) {
-        Minecraft.func_71410_x().func_147108_a(new APMOverlayGui());
-        this.isInOverlayMode = true;
-      } 
-      if (key == toggleModKey.func_151463_i()) {
-        this.modEnabled = !this.modEnabled;
-        Minecraft.func_71410_x().field_71439_g.func_145747_a(
-          new ChatComponentText("Display " + (this.modEnabled ? ": ON" : ": OFF"))
-        );
-        saveConfig();
-      } 
-    } 
-  }
-  
-  @SubscribeEvent
-  public void onGuiOpen(GuiOpenEvent event) {
-    if (!(event.gui instanceof APMOverlayGui))
-      this.isInOverlayMode = false; 
-  }
-  
-  @SubscribeEvent
-  public void onRenderOverlay(RenderGameOverlayEvent.Text event) {
-    if (event.type != RenderGameOverlayEvent.ElementType.TEXT || !this.modEnabled || this.isInOverlayMode)
-      return; 
-    Minecraft mc = Minecraft.func_71410_x();
-    int offset = 0;
-    if (this.modEnabled) {
-      String display = String.format(this.displayText, new Object[] { Integer.valueOf(this.apmTracker.getZFrontierStyleAPM()) });
-      mc.field_71466_p.func_175063_a(display, this.posX, (this.posY + offset), this.fontColor);
-      offset += 10;
-      for (int slot = 2; slot <= 4; slot++) {
-        int stay = this.apmTracker.getAverageStayTime(slot);
-        String stayText = (stay > 999) ? "999+" : (stay + "");
-        String avgText = String.format("Slot %d: %sms", new Object[] { Integer.valueOf(slot), stayText });
-        mc.field_71466_p.func_175063_a(avgText, this.posX, (this.posY + offset), this.fontColor);
-        offset += 10;
-      } 
-    } 
-  }
-  
-  private void loadConfig() {
-    try {
-      if (!this.configFile.exists())
-        return; 
-      Properties props = new Properties();
-      FileInputStream in = new FileInputStream(this.configFile);
-      props.load(in);
-      in.close();
-      this.posX = Integer.parseInt(props.getProperty("posX", "5"));
-      this.posY = Integer.parseInt(props.getProperty("posY", "5"));
-      this.fontColor = Integer.decode(props.getProperty("fontColor", "0xFFFFFF")).intValue();
-      this.displayText = props.getProperty("displayText", "APM: %d");
-      this.showAPM = Boolean.parseBoolean(props.getProperty("showAPM", "true"));
-      this.showSlotTimes = Boolean.parseBoolean(props.getProperty("showSlotTimes", "true"));
-      this.modEnabled = Boolean.parseBoolean(props.getProperty("modEnabled", "true"));
-    } catch (IOException|NumberFormatException iOException) {}
-  }
-  
-  private void saveConfig() {
-    try {
-      Properties props = new Properties();
-      props.setProperty("posX", Integer.toString(this.posX));
-      props.setProperty("posY", Integer.toString(this.posY));
-      props.setProperty("fontColor", String.format("0x%06X", new Object[] { Integer.valueOf(this.fontColor) }));
-      props.setProperty("displayText", this.displayText);
-      props.setProperty("showAPM", Boolean.toString(this.showAPM));
-      props.setProperty("showSlotTimes", Boolean.toString(this.showSlotTimes));
-      props.setProperty("modEnabled", Boolean.toString(this.modEnabled));
-      FileOutputStream out = new FileOutputStream(this.configFile);
-      props.store(out, "APM Mod Config");
-      out.close();
-    } catch (IOException iOException) {}
-  }
-  
-  private static class APMTracker {
-    private final Queue<Long> timestamps = new LinkedList<>();
-    
-    private final Map<Integer, List<Long>> slotStayDurations = new HashMap<>();
-    
-    private int lastSlot = -1;
-    
-    private long lastSwitchTime = 0L;
-    
-    public void recordAction(int keyCode) {
-      long now = System.currentTimeMillis();
-      this.timestamps.add(Long.valueOf(now));
-      int slot = keyCode - 2 + 1;
-      if (slot >= 2 && slot <= 4) {
-        if (this.lastSlot != -1 && this.lastSlot != slot) {
-          long duration = now - this.lastSwitchTime;
-          this.slotStayDurations.putIfAbsent(Integer.valueOf(this.lastSlot), new ArrayList<>());
-          List<Long> durations = this.slotStayDurations.get(Integer.valueOf(this.lastSlot));
-          durations.add(Long.valueOf(duration));
-          if (durations.size() > 10)
-            durations.remove(0); 
-        } 
-        this.lastSlot = slot;
-        this.lastSwitchTime = now;
-      } 
+        loadConfig();
     }
-    
-    public int getAverageStayTime(int slot) {
-      List<Long> durations = this.slotStayDurations.getOrDefault(Integer.valueOf(slot), Collections.emptyList());
-      if (durations.isEmpty())
-        return 0; 
-      long sum = 0L;
-      for (Iterator<Long> iterator = durations.iterator(); iterator.hasNext(); ) {
-        long d = ((Long)iterator.next()).longValue();
-        sum += d;
-      } 
-      return (int)(sum / durations.size());
+
+    private void onHotbarSwitch(int currentSlot) {
+        if (currentSlot < 2 || currentSlot > 4) return;
+
+        long currentTime = System.currentTimeMillis();
+
+        if (previousSlot != -1 && lastSwitchTime != -1) {
+            long interval = currentTime - lastSwitchTime;
+            System.out.println("Switched from slot " + previousSlot + " to " + currentSlot +
+                    " | Interval: " + interval + " ms");
+        }
+
+        previousSlot = currentSlot;
+        lastSwitchTime = currentTime;
     }
-    
-    public int getZFrontierStyleAPM() {
-      long now = System.currentTimeMillis();
-      long cutoff = now - 5000L;
-      while (!this.timestamps.isEmpty() && ((Long)this.timestamps.peek()).longValue() < cutoff)
-        this.timestamps.poll(); 
-      int count = this.timestamps.size();
-      if (count == 0)
-        return 0; 
-      long last = 0L;
-      for (Iterator<Long> iterator = this.timestamps.iterator(); iterator.hasNext(); last = t = ((Long)iterator.next()).longValue());
-      long secondsSinceLast = (now - last) / 1000L;
-      return Math.max(12 * count - (int)secondsSinceLast, 0);
+
+    @SubscribeEvent
+    public void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) return;
+
+        int currentSlot = mc.thePlayer.inventory.currentItem;
+        if (currentSlot != previousSlot) {
+            onHotbarSwitch(currentSlot);
+        }
     }
-    
-    private APMTracker() {}
-  }
-  
-  private static class APMOverlayGui extends GuiScreen {
-    private GuiButton doneButton;
-    
-    private GuiButton resetButton;
-    
-    private boolean dragging = false;
-    
-    private int dragOffsetX;
-    
-    private int dragOffsetY;
-    
-    public void func_73866_w_() {
-      this.field_146292_n.clear();
-      this.doneButton = new GuiButton(0, this.field_146294_l / 2 - 105, this.field_146295_m - 30, 100, 20, "Done");
-      this.resetButton = new GuiButton(1, this.field_146294_l / 2 + 5, this.field_146295_m - 30, 100, 20, "Reset");
-      this.field_146292_n.add(this.doneButton);
-      this.field_146292_n.add(this.resetButton);
+
+    @SubscribeEvent
+    public void onKeyInput(InputEvent.KeyInputEvent event) {
+        if (!Keyboard.getEventKeyState()) return;
+
+        int key = Keyboard.getEventKey();
+
+        // Map keys 2, 3, 4 to Minecraft hotbar slots 2, 3, 4 for APM tracking
+        if (key == Keyboard.KEY_2 || key == Keyboard.KEY_3 || key == Keyboard.KEY_4) {
+            apmTracker.recordAction(key);
+        }
+
+        if (key == toggleOverlayKey.getKeyCode()) {
+            Minecraft.getMinecraft().displayGuiScreen(new APMOverlayGui());
+            isInOverlayMode = true;
+        }
+
+        if (key == toggleModKey.getKeyCode()) {
+            modEnabled = !modEnabled;
+            Minecraft.getMinecraft().thePlayer.addChatMessage(new ChatComponentText("Display " + (modEnabled ? "ON" : "OFF")));
+            saveConfig();
+        }
     }
-    
-    protected void func_146284_a(GuiButton button) {
-      APMMod mod = APMMod.getInstance();
-      if (button.field_146127_k == 0) {
-        Minecraft.func_71410_x().func_147108_a(null);
-        mod.saveConfig();
-      } else if (button.field_146127_k == 1) {
-        mod.posX = 5;
-        mod.posY = 5;
-        mod.fontColor = 16777215;
-        mod.displayText = "APM: %d";
-        mod.showAPM = true;
-        mod.showSlotTimes = true;
-        mod.modEnabled = true;
-        mod.saveConfig();
-      } 
+
+    @SubscribeEvent
+    public void onGuiOpen(GuiOpenEvent event) {
+        if (!(event.gui instanceof APMOverlayGui)) {
+            isInOverlayMode = false;
+        }
     }
-    
-    protected void func_73864_a(int mouseX, int mouseY, int mouseButton) {
-      if (mouseButton == 0 && mouseX >= (APMMod.getInstance()).posX && mouseX <= (APMMod.getInstance()).posX + 100 && mouseY >= (APMMod.getInstance()).posY && mouseY <= (APMMod.getInstance()).posY + 30) {
-        this.dragging = true;
-        this.dragOffsetX = mouseX - (APMMod.getInstance()).posX;
-        this.dragOffsetY = mouseY - (APMMod.getInstance()).posY;
-      } 
-      try {
-        super.func_73864_a(mouseX, mouseY, mouseButton);
-      } catch (IOException e) {
-        e.printStackTrace();
-      } 
+
+    @SubscribeEvent
+    public void onRenderOverlay(RenderGameOverlayEvent.Text event) {
+        if (event.type != RenderGameOverlayEvent.ElementType.TEXT) return;
+        if (!modEnabled || isInOverlayMode) return;
+
+        Minecraft mc = Minecraft.getMinecraft();
+
+        int offset = 0;
+
+        if (showAPM) {
+            String display = String.format(displayText, apmTracker.getZFrontierStyleAPM());
+            mc.fontRendererObj.drawString(display, posX, posY + offset, fontColor);
+            offset += 10;
+        }
+
+        if (showSlotTimes) {
+            for (int slot = 2; slot <= 4; slot++) {
+                int stay = apmTracker.getAverageStayTime(slot);
+                String stayText = stay > 999 ? "999+" : String.valueOf(stay);
+                String avgText = String.format("Slot %d: %sms", slot, stayText);
+                mc.fontRendererObj.drawString(avgText, posX, posY + offset, fontColor);
+                offset += 10;
+            }
+        }
     }
-    
-    protected void func_146273_a(int mouseX, int mouseY, int clickedMouseButton, long timeSinceLastClick) {
-      if (this.dragging) {
-        (APMMod.getInstance()).posX = mouseX - this.dragOffsetX;
-        (APMMod.getInstance()).posY = mouseY - this.dragOffsetY;
-      } 
-      super.func_146273_a(mouseX, mouseY, clickedMouseButton, timeSinceLastClick);
+
+    private void loadConfig() {
+        try {
+            if (!configFile.exists()) return;
+            Properties props = new Properties();
+            FileInputStream in = new FileInputStream(configFile);
+            props.load(in);
+            in.close();
+
+            posX = Integer.parseInt(props.getProperty("posX", "5"));
+            posY = Integer.parseInt(props.getProperty("posY", "5"));
+            fontColor = Integer.decode(props.getProperty("fontColor", "0xFFFFFF"));
+            displayText = props.getProperty("displayText", "APM: %d");
+            showAPM = Boolean.parseBoolean(props.getProperty("showAPM", "true"));
+            showSlotTimes = Boolean.parseBoolean(props.getProperty("showSlotTimes", "true"));
+            modEnabled = Boolean.parseBoolean(props.getProperty("modEnabled", "true"));
+
+        } catch (IOException | NumberFormatException e) {
+            e.printStackTrace();
+        }
     }
-    
-    protected void func_146286_b(int mouseX, int mouseY, int state) {
-      this.dragging = false;
-      super.func_146286_b(mouseX, mouseY, state);
+
+    private void saveConfig() {
+        try {
+            Properties props = new Properties();
+            props.setProperty("posX", Integer.toString(posX));
+            props.setProperty("posY", Integer.toString(posY));
+            props.setProperty("fontColor", String.format("0x%06X", fontColor));
+            props.setProperty("displayText", displayText);
+            props.setProperty("showAPM", Boolean.toString(showAPM));
+            props.setProperty("showSlotTimes", Boolean.toString(showSlotTimes));
+            props.setProperty("modEnabled", Boolean.toString(modEnabled));
+
+            FileOutputStream out = new FileOutputStream(configFile);
+            props.store(out, "APM Mod Config");
+            out.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
-    
-    public void func_73863_a(int mouseX, int mouseY, float partialTicks) {
-      func_146276_q_();
-      APMMod mod = APMMod.getInstance();
-      int offset = 0;
-      func_73732_a(this.field_146289_q, "Click \"Done\" to save your current HUD position settings.", this.field_146294_l / 2, this.field_146295_m / 2 - 20, 16777215);
-      this.field_146289_q.func_175063_a("APM: XXX", mod.posX, (mod.posY + offset), mod.fontColor);
-      offset += 10;
-      for (int slot = 2; slot <= 4; slot++) {
-        this.field_146289_q.func_175063_a(String.format("Slot %d: ---+ms", new Object[] { Integer.valueOf(slot) }), mod.posX, (mod.posY + offset), mod.fontColor);
-        offset += 10;
-      } 
-      super.func_73863_a(mouseX, mouseY, partialTicks);
+
+    private class APMTracker {
+        private final Queue<Long> timestamps = new LinkedList<>();
+        private final Map<Integer, List<Long>> slotStayDurations = new HashMap<>();
+        private int lastSlot = -1;
+        private long lastSwitchTime = 0L;
+
+        public void recordAction(int keyCode) {
+            long now = System.currentTimeMillis();
+            timestamps.add(now);
+
+            // Map keys 2,3,4 to slots 2,3,4 respectively
+            int slot = keyCode - Keyboard.KEY_1; // Keyboard.KEY_1 = 2, so this makes KEY_2 -> slot 1, etc. Need adjustment.
+
+            // Correct slot calculation:
+            // Keyboard.KEY_1 = 2, so slot = keyCode - 1, but you want slot 2,3,4 for keys 2,3,4
+            // So slot = keyCode (2,3,4) directly is fine, or:
+            slot = keyCode; // Use keyCode directly for slot, since you only track slots 2-4
+
+            if (slot >= Keyboard.KEY_2 && slot <= Keyboard.KEY_4) {
+                int slotNumber = slot; // Keys 2,3,4 directly used as slot numbers (2,3,4)
+
+                if (lastSlot != -1 && lastSlot != slotNumber) {
+                    long duration = now - lastSwitchTime;
+                    slotStayDurations.putIfAbsent(lastSlot, new ArrayList<>());
+                    List<Long> durations = slotStayDurations.get(lastSlot);
+                    durations.add(duration);
+                    if (durations.size() > 10) durations.remove(0);
+                }
+                lastSlot = slotNumber;
+                lastSwitchTime = now;
+            }
+        }
+
+        public int getAverageStayTime(int slot) {
+            List<Long> durations = slotStayDurations.getOrDefault(slot, Collections.emptyList());
+            if (durations.isEmpty()) return 0;
+            long sum = 0L;
+            for (Long d : durations) sum += d;
+            return (int) (sum / durations.size());
+        }
+
+        public int getZFrontierStyleAPM() {
+            long now = System.currentTimeMillis();
+            long cutoff = now - 5000L;
+            while (!timestamps.isEmpty() && timestamps.peek() < cutoff) {
+                timestamps.poll();
+            }
+            int count = timestamps.size();
+            if (count == 0) return 0;
+            long last = 0L;
+            for (Long t : timestamps) last = t;
+            long secondsSinceLast = (now - last) / 1000L;
+            return Math.max(12 * count - (int) secondsSinceLast, 0);
+        }
     }
-    
-    public boolean func_73868_f() {
-      return false;
+
+    private class APMOverlayGui extends GuiScreen {
+        private GuiButton doneButton;
+        private GuiButton resetButton;
+        private boolean dragging = false;
+        private int dragOffsetX;
+        private int dragOffsetY;
+
+        @Override
+        public void initGui() {
+            this.buttonList.clear();
+            int centerX = this.width / 2;
+            int bottomY = this.height - 30;
+            this.doneButton = new GuiButton(0, centerX - 105, bottomY, 100, 20, "Done");
+            this.resetButton = new GuiButton(1, centerX + 5, bottomY, 100, 20, "Reset");
+            this.buttonList.add(doneButton);
+            this.buttonList.add(resetButton);
+        }
+
+        @Override
+        protected void actionPerformed(GuiButton button) {
+            APMMod mod = APMMod.getInstance();
+            if (button.id == 0) {
+                Minecraft.getMinecraft().displayGuiScreen(null);
+                mod.saveConfig();
+            } else if (button.id == 1) {
+                mod.posX = 5;
+                mod.posY = 5;
+                mod.fontColor = 0xFFFFFF;
+                mod.displayText = "APM: %d";
+                mod.showAPM = true;
+                mod.showSlotTimes = true;
+                mod.modEnabled = true;
+                mod.saveConfig();
+            }
+        }
+
+        @Override
+        protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {
+            if (mouseButton == 0) {
+                APMMod mod = APMMod.getInstance();
+                // Drag box area roughly 100x30 at posX, posY
+                if (mouseX >= mod.posX && mouseX <= mod.posX + 100 &&
+                    mouseY >= mod.posY && mouseY <= mod.posY + 30) {
+                    dragging = true;
+                    dragOffsetX = mouseX - mod.posX;
+                    dragOffsetY = mouseY - mod.posY;
+                }
+            }
+            super.mouseClicked(mouseX, mouseY, mouseButton);
+        }
+
+        @Override
+        protected void mouseClickMove(int mouseX, int mouseY, int clickedMouseButton, long timeSinceLastClick) {
+            if (dragging) {
+                APMMod mod = APMMod.getInstance();
+                mod.posX = mouseX - dragOffsetX;
+                mod.posY = mouseY - dragOffsetY;
+            }
+            super.mouseClickMove(mouseX, mouseY, clickedMouseButton, timeSinceLastClick);
+        }
+
+        @Override
+        protected void mouseReleased(int mouseX, int mouseY, int state) {
+            dragging = false;
+            super.mouseReleased(mouseX, mouseY, state);
+        }
+
+        @Override
+        public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+            drawDefaultBackground();
+            APMMod mod = APMMod.getInstance();
+            int offset = 0;
+
+            drawCenteredString(fontRendererObj, "Click \"Done\" to save your current HUD position settings.", width / 2, height / 2 - 20, 0xFFFFFF);
+
+            fontRendererObj.drawString("APM: XXX", mod.posX, mod.posY + offset, mod.fontColor);
+            offset += 10;
+            for (int slot = 2; slot <= 4; slot++) {
+                fontRendererObj.drawString(String.format("Slot %d: ---+ms", slot), mod.posX, mod.posY + offset, mod.fontColor);
+                offset += 10;
+            }
+            super.drawScreen(mouseX, mouseY, partialTicks);
+        }
+
+        @Override
+        public boolean doesGuiPauseGame() {
+            return false;
+        }
     }
-    
-    private APMOverlayGui() {}
-  }
 }
