@@ -48,7 +48,7 @@ public class APMMod {
         // but your original code used 2-4 1-based. Let's adapt accordingly:
         // Minecraft hotbar slots are 0-8, so slots 2,3,4 means indexes 1,2,3?
 
-        if (currentSlot < 2 || currentSlot > 4) {
+        if (currentSlot < 1 || currentSlot > 3) {
             previousSlot = -1; // reset if outside range
             return;
         }
